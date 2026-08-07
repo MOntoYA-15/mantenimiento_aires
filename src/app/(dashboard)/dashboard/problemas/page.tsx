@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { marcaLabel, prioridadColor } from '@/lib/utils';
 import type { Problema, Sucursal, PrioridadEmergencia } from '@/types/database';
-import { resolveFiles } from '@/lib/storage';
+import { resolveFiles, prepareFilesForUpload } from '@/lib/storage';
 
 export default function ProblemasPage() {
   const [problemas, setProblemas] = useState<(Problema & { sucursal?: Sucursal })[]>([]);
@@ -111,18 +111,18 @@ export default function ProblemasPage() {
       return;
     }
 
-    // Subir archivos
+    // Subir archivos (comprimidos en paralelo = más rápido)
     const fallosUpload: string[] = [];
-    for (const file of files) {
+    const prepared = await prepareFilesForUpload(files);
+    await Promise.all(prepared.map(async (file) => {
       const ext = file.name.split('.').pop() || 'bin';
       const path = `problemas/${problema.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from('archivos')
         .upload(path, file, { upsert: true, contentType: file.type });
-
       if (uploadError) {
         fallosUpload.push(file.name + ': ' + uploadError.message);
-        continue;
+        return;
       }
       const { data: urlData } = supabase.storage.from('archivos').getPublicUrl(path);
       const tipo = file.type.startsWith('video') ? 'video' : 'imagen';
@@ -133,10 +133,11 @@ export default function ProblemasPage() {
         nombre_archivo: file.name,
         tamanio_bytes: file.size,
       });
-    }
+    }));
     if (fallosUpload.length) {
-      alert('Algunos archivos no se subieron. Revisa que el bucket "archivos" sea público.\n' + fallosUpload.join('\n'));
+      alert('Algunos archivos no se subieron.\n' + fallosUpload.join('\n'));
     }
+
 
     // Prioridad 1 o 2 → primera en la ruta + visita de emergencia
     if (form.prioridad === '1' || form.prioridad === '2') {

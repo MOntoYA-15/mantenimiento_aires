@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { marcaLabel } from '@/lib/utils';
 import { registrarBitacora } from '@/lib/bitacora';
-import { resolveFiles } from '@/lib/storage';
+import { resolveFiles, prepareFilesForUpload } from '@/lib/storage';
 import type { Sucursal, Perfil, VisitaProgramada } from '@/types/database';
 
 type Fila = Sucursal & { visitaHoy?: VisitaProgramada | null };
@@ -32,22 +32,37 @@ export default function RutaPage() {
 
   const load = async () => {
     setLoading(true);
-    const [{ data: sucs }, { data: visitas }, { data: { user } }] = await Promise.all([
+    const [{ data: sucs }, { data: visitasHoy }, { data: emergenciasActivas }, { data: { user } }] = await Promise.all([
       supabase.from('sucursales').select('*').eq('activa', true).order('orden_ciclo'),
       supabase.from('visitas_programadas').select('*').eq('fecha_programada', hoy),
+      supabase.from('visitas_programadas').select('*').eq('es_emergencia', true).neq('estado', 'completada'),
       supabase.auth.getUser(),
     ]);
+    // Unir visitas de hoy + emergencias pendientes (aunque sean de otro día)
+    const visitas = [...(visitasHoy || [])];
+    for (const e of emergenciasActivas || []) {
+      if (!visitas.some((v) => v.id === e.id)) visitas.push(e);
+    }
 
     const bySuc = new Map<string, VisitaProgramada>();
     for (const v of visitas || []) {
       const prev = bySuc.get(v.sucursal_id);
       if (!prev) {
         bySuc.set(v.sucursal_id, v);
-      } else if (prev.estado === 'completada' && v.estado !== 'completada') {
+        continue;
+      }
+      // Preferir pendientes sobre completadas
+      if (prev.estado === 'completada' && v.estado !== 'completada') {
         bySuc.set(v.sucursal_id, v);
-      } else if (prev.estado !== 'completada' && v.estado === 'completada') {
-        // keep pending
-      } else if ((v.fecha_fin || v.created_at) > (prev.fecha_fin || prev.created_at)) {
+        continue;
+      }
+      if (prev.estado !== 'completada' && v.estado === 'completada') continue;
+      // Preferir emergencias
+      if (v.es_emergencia && !prev.es_emergencia) {
+        bySuc.set(v.sucursal_id, v);
+        continue;
+      }
+      if ((v.fecha_fin || v.created_at) > (prev.fecha_fin || prev.created_at)) {
         bySuc.set(v.sucursal_id, v);
       }
     }
@@ -146,10 +161,11 @@ export default function RutaPage() {
 
       if (visitaId && evidencias.length > 0) {
         try {
-          for (const file of evidencias) {
+          const prepared = await prepareFilesForUpload(evidencias);
+          await Promise.all(prepared.map(async (file) => {
             const ext = file.name.split('.').pop() || 'jpg';
             const path = 'visitas/' + visitaId + '/' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.' + ext;
-            const { error: upErr } = await supabase.storage.from('archivos').upload(path, file);
+            const { error: upErr } = await supabase.storage.from('archivos').upload(path, file, { contentType: file.type });
             if (!upErr) {
               const { data: urlData } = supabase.storage.from('archivos').getPublicUrl(path);
               await supabase.from('archivos_visita').insert({
@@ -159,12 +175,13 @@ export default function RutaPage() {
                 nombre_archivo: file.name,
               });
             }
-          }
+          }));
         } catch { /* ignore */ }
       }
 
       if (modoCierre === 'completa') {
         await moverAlFinal(sucursalId);
+        // Cerrar problemas abiertos de esta sucursal
         try {
           await supabase
             .from('problemas')
@@ -176,6 +193,20 @@ export default function RutaPage() {
             })
             .eq('sucursal_id', sucursalId)
             .eq('estado', 'abierto');
+        } catch { /* ignore */ }
+        // Cerrar TODAS las emergencias pendientes de esta sucursal
+        try {
+          await supabase
+            .from('visitas_programadas')
+            .update({
+              estado: 'completada',
+              fecha_fin: new Date().toISOString(),
+              tecnico_id: user?.id,
+              trabajo_realizado: trabajo || 'Cerrada desde ruta del día',
+            })
+            .eq('sucursal_id', sucursalId)
+            .eq('es_emergencia', true)
+            .neq('estado', 'completada');
         } catch { /* ignore */ }
       }
 
