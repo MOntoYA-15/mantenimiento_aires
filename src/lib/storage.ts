@@ -1,6 +1,5 @@
 import { createClient } from '@/lib/supabase/client';
 
-/** Extrae path del bucket desde una public URL de Supabase Storage */
 export function pathFromPublicUrl(url: string): string | null {
   try {
     const marker = '/storage/v1/object/public/archivos/';
@@ -16,7 +15,6 @@ export function pathFromPublicUrl(url: string): string | null {
   return null;
 }
 
-/** Devuelve URL usable (firmada 1h) para ver el archivo */
 export async function resolveFileUrl(url: string): Promise<string> {
   if (!url) return url;
   const path = pathFromPublicUrl(url);
@@ -32,5 +30,40 @@ export async function resolveFileUrl(url: string): Promise<string> {
 export async function resolveFiles<T extends { url: string }>(files: T[]): Promise<(T & { viewUrl: string })[]> {
   return Promise.all(
     files.map(async (f) => ({ ...f, viewUrl: await resolveFileUrl(f.url) }))
+  );
+}
+
+/** Comprime imagen en el cliente para subir más rápido (máx 1280px, calidad 0.7) */
+export async function compressImage(file: File, maxSide = 1280, quality = 0.7): Promise<File> {
+  if (!file.type.startsWith('image/') || file.type === 'image/gif') return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    let { width, height } = bitmap;
+    if (width > maxSide || height > maxSide) {
+      const scale = maxSide / Math.max(width, height);
+      width = Math.round(width * scale);
+      height = Math.round(height * scale);
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return file;
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close();
+    const blob: Blob | null = await new Promise((resolve) =>
+      canvas.toBlob((b) => resolve(b), 'image/jpeg', quality)
+    );
+    if (!blob) return file;
+    const name = file.name.replace(/\.\w+$/, '') + '.jpg';
+    return new File([blob], name, { type: 'image/jpeg' });
+  } catch {
+    return file;
+  }
+}
+
+export async function prepareFilesForUpload(files: File[]): Promise<File[]> {
+  return Promise.all(
+    files.map(async (f) => (f.type.startsWith('image/') ? compressImage(f) : f))
   );
 }
