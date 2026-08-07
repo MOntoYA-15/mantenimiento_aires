@@ -7,14 +7,14 @@ import { createClient } from '@/lib/supabase/client';
 import type { Perfil } from '@/types/database';
 
 const navItems = [
-  { href: '/dashboard', label: 'Inicio', icon: '🏠', roles: ['admin', 'tecnico', 'gerente'] },
-  { href: '/dashboard/sucursales', label: 'Sucursales', icon: '📍', roles: ['admin'] },
-  { href: '/dashboard/ruta', label: 'Ruta del día', icon: '🗓️', roles: ['admin', 'tecnico'] },
-  { href: '/dashboard/problemas', label: 'Problemas', icon: '⚠️', roles: ['admin', 'tecnico', 'gerente'] },
-  { href: '/dashboard/emergencias', label: 'Emergencias', icon: '🚨', roles: ['admin', 'tecnico'] },
-  { href: '/dashboard/historial', label: 'Historial', icon: '📋', roles: ['admin', 'tecnico'] },
-  { href: '/dashboard/usuarios', label: 'Usuarios', icon: '👥', roles: ['admin'] },
-  { href: '/dashboard/cuenta', label: 'Mi cuenta', icon: '🔑', roles: ['admin', 'tecnico', 'gerente'] },
+  { href: '/dashboard', label: 'Inicio', icon: '⌂', roles: ['admin', 'tecnico', 'gerente'] },
+  { href: '/dashboard/sucursales', label: 'Sucursales', icon: '◎', roles: ['admin'] },
+  { href: '/dashboard/ruta', label: 'Ruta del día', icon: '☰', roles: ['admin', 'tecnico'] },
+  { href: '/dashboard/problemas', label: 'Problemas', icon: '!', roles: ['admin', 'tecnico', 'gerente'] },
+  { href: '/dashboard/emergencias', label: 'Emergencias', icon: '⚡', roles: ['admin', 'tecnico'] },
+  { href: '/dashboard/historial', label: 'Historial', icon: '≡', roles: ['admin', 'tecnico'] },
+  { href: '/dashboard/usuarios', label: 'Usuarios', icon: '☺', roles: ['admin'] },
+  { href: '/dashboard/cuenta', label: 'Mi cuenta', icon: '⚙', roles: ['admin', 'tecnico', 'gerente'] },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -32,11 +32,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         router.push('/login');
         return;
       }
-      const { data } = await supabase
-        .from('perfiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
+      const { data } = await supabase.from('perfiles').select('*').eq('id', user.id).single();
       if (!data?.aprobado || data?.bloqueado || !data?.activo) {
         await supabase.auth.signOut();
         router.push('/login');
@@ -59,8 +55,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-pulse text-slate-400">Cargando...</div>
+      <div className="min-h-screen flex items-center justify-center app-bg">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-sky-400 to-sky-600 animate-pulse" />
+          <div className="text-slate-400 text-sm">Cargando...</div>
+        </div>
       </div>
     );
   }
@@ -69,57 +68,53 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     perfil ? item.roles.includes(perfil.rol) : false
   );
 
+  const hora = new Date().getHours();
+  const saludo = hora < 12 ? 'Buenos días' : hora < 19 ? 'Buenas tardes' : 'Buenas noches';
+
   return (
-    <div className="min-h-screen flex bg-slate-50">
-      {/* Overlay móvil */}
+    <div className="min-h-screen flex app-bg">
       {menuOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 z-20 md:hidden"
-          onClick={() => setMenuOpen(false)}
-        />
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-20 md:hidden" onClick={() => setMenuOpen(false)} />
       )}
 
-      {/* Sidebar */}
       <aside
         className={`
-          w-64 bg-white border-r border-slate-200 flex flex-col fixed h-full z-30
-          transition-transform duration-200 ease-in-out
+          w-64 bg-white/90 backdrop-blur-xl border-r border-slate-200/80 flex flex-col fixed h-full z-30
+          transition-transform duration-300 ease-out shadow-xl shadow-slate-200/50
           ${menuOpen ? 'translate-x-0' : '-translate-x-full'}
-          md:translate-x-0
+          md:translate-x-0 md:shadow-none
         `}
       >
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+        <div className="p-5 border-b border-slate-100">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-sky-500 text-white flex items-center justify-center font-bold text-sm">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-sky-400 to-cyan-600 text-white flex items-center justify-center font-bold text-sm shadow-lg shadow-sky-200">
               AC
             </div>
             <div>
-              <div className="font-semibold text-slate-800 text-sm">Mantenimiento AC</div>
-              <div className="text-xs text-slate-400">Le Café · Punta Brasas</div>
+              <div className="font-bold text-slate-800 text-sm tracking-tight">Mantenimiento AC</div>
+              <div className="text-[11px] text-slate-400 font-medium">Le Café · Punta Brasas</div>
             </div>
           </div>
-          <button
-            onClick={() => setMenuOpen(false)}
-            className="md:hidden text-slate-400 text-xl p-1"
-          >
-            ×
-          </button>
         </div>
 
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+        <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
           {filteredNav.map((item) => {
-            const active = pathname === item.href;
+            const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition ${
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
                   active
-                    ? 'bg-sky-50 text-sky-700'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    ? 'bg-gradient-to-r from-sky-500 to-cyan-500 text-white shadow-md shadow-sky-200/80'
+                    : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900'
                 }`}
               >
-                <span className="text-lg">{item.icon}</span>
+                <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs ${
+                  active ? 'bg-white/20' : 'bg-slate-100 text-slate-500'
+                }`}>
+                  {item.icon}
+                </span>
                 {item.label}
               </Link>
             );
@@ -127,43 +122,42 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </nav>
 
         <div className="p-4 border-t border-slate-100">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-9 h-9 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 font-medium text-sm">
-              {perfil?.nombre?.charAt(0)?.toUpperCase() || 'U'}
+          <div className="flex items-center gap-3 mb-3 px-1">
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-700 to-slate-900 text-white flex items-center justify-center text-sm font-semibold">
+              {(perfil?.nombre || 'U').charAt(0).toUpperCase()}
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-slate-800 truncate">{perfil?.nombre}</div>
-              <div className="text-xs text-slate-400 capitalize">{perfil?.rol}</div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold text-slate-800 truncate">{perfil?.nombre}</div>
+              <div className="text-[11px] text-slate-400 capitalize">{perfil?.rol}</div>
             </div>
           </div>
           <button
             onClick={handleLogout}
-            className="w-full text-left text-sm text-slate-500 hover:text-red-600 px-2 py-1.5 rounded-lg hover:bg-red-50 transition"
+            className="w-full text-left text-sm text-slate-500 hover:text-red-600 px-2 py-2 rounded-lg hover:bg-red-50 transition"
           >
             Cerrar sesión
           </button>
         </div>
       </aside>
 
-      {/* Main content */}
-      <div className="flex-1 md:ml-64 flex flex-col min-h-screen">
-        {/* Top bar móvil */}
-        <header className="md:hidden sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 flex items-center gap-3">
+      <div className="flex-1 md:ml-64 min-w-0 flex flex-col min-h-screen">
+        <header className="sticky top-0 z-10 bg-white/70 backdrop-blur-md border-b border-slate-200/60 px-4 py-3 flex items-center gap-3 md:px-8">
           <button
             onClick={() => setMenuOpen(true)}
-            className="p-2 -ml-1 rounded-lg hover:bg-slate-100 text-slate-600"
-            aria-label="Abrir menú"
+            className="md:hidden w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-600 shadow-sm"
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
+            ☰
           </button>
-          <div className="font-semibold text-slate-800 text-sm">Mantenimiento AC</div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-slate-500 truncate">
+              {saludo}, <span className="font-semibold text-slate-800">{perfil?.nombre?.split(' ')[0]}</span>
+            </p>
+          </div>
+          <div className="hidden sm:flex items-center gap-2 text-xs text-slate-400 bg-white/80 border border-slate-100 px-3 py-1.5 rounded-full">
+            {new Date().toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' })}
+          </div>
         </header>
-
-        <main className="flex-1 p-4 sm:p-6 md:p-8 overflow-x-hidden">
-          {children}
-        </main>
+        <main className="flex-1 p-4 sm:p-6 md:p-8">{children}</main>
       </div>
     </div>
   );

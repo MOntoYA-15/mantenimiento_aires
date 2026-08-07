@@ -180,7 +180,7 @@ export default function RutaPage() {
   };
 
   const siguiente = filas.find((f) => f.visitaHoy?.estado !== 'completada');
-  const proximas = filas.filter((f) => f.id !== siguiente?.id && f.visitaHoy?.estado !== 'completada').slice(0, 8);
+  const proximas = filas.filter((f) => f.id !== siguiente?.id && f.visitaHoy?.estado !== 'completada');
   const completadasHoy = filas
     .filter((f) => f.visitaHoy?.estado === 'completada')
     .sort((a, b) => {

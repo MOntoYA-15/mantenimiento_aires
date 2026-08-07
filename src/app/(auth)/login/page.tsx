@@ -91,10 +91,10 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-sky-50 via-white to-cyan-50 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-sky-100 via-white to-cyan-50 p-4 relative overflow-hidden">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-sky-500 text-white text-2xl font-bold shadow-lg shadow-sky-200 mb-4">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-sky-400 to-cyan-600 text-white text-2xl font-bold shadow-xl shadow-sky-300/50 mb-4">
             AC
           </div>
           <h1 className="text-2xl font-bold text-slate-800">Mantenimiento de Aires</h1>
@@ -156,7 +156,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 rounded-xl bg-sky-500 hover:bg-sky-600 text-white font-semibold shadow-lg shadow-sky-200 transition disabled:opacity-60"
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-600 hover:to-cyan-600 text-white font-semibold shadow-lg shadow-sky-200/60 transition disabled:opacity-60"
             >
               {loading ? 'Cargando...' : isRegister ? 'Enviar solicitud' : 'Entrar'}
             </button>

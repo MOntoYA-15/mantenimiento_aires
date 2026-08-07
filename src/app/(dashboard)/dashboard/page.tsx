@@ -2,68 +2,52 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { formatHoras, marcaLabel, estadoVisitaColor } from '@/lib/utils';
-import type { Sucursal, VisitaProgramada, Problema } from '@/types/database';
+import { marcaLabel, estadoVisitaColor } from '@/lib/utils';
+import type { Sucursal, Problema } from '@/types/database';
 import Link from 'next/link';
 
 export default function DashboardPage() {
   const [stats, setStats] = useState({
     sucursales: 0,
-    visitasPendientes: 0,
-    visitasCompletadasHoy: 0,
+    completadasHoy: 0,
     problemasAbiertos: 0,
     emergencias: 0,
   });
-  const [visitasHoy, setVisitasHoy] = useState<(VisitaProgramada & { sucursal?: Sucursal })[]>([]);
+  const [siguiente, setSiguiente] = useState<Sucursal | null>(null);
   const [problemas, setProblemas] = useState<(Problema & { sucursal?: Sucursal })[]>([]);
   const [loading, setLoading] = useState(true);
   const supabase = createClient();
+  const hoy = new Date().toISOString().split('T')[0];
 
   const load = useCallback(async () => {
-    const hoy = new Date().toISOString().split('T')[0];
-
     const [
       { count: sucCount },
-      { data: visitas },
+      { data: sucs },
+      { data: visitasHoy },
       { count: probCount },
       { data: probs },
       { count: emergCount },
       { count: completadasHoy },
     ] = await Promise.all([
       supabase.from('sucursales').select('*', { count: 'exact', head: true }).eq('activa', true),
-      supabase
-        .from('visitas_programadas')
-        .select('*, sucursal:sucursales(*)')
-        .eq('fecha_programada', hoy)
-        .in('estado', ['pendiente', 'en_progreso', 'parcial'])
-        .order('orden_del_dia'),
+      supabase.from('sucursales').select('*').eq('activa', true).order('orden_ciclo').limit(15),
+      supabase.from('visitas_programadas').select('sucursal_id, estado').eq('fecha_programada', hoy),
       supabase.from('problemas').select('*', { count: 'exact', head: true }).eq('estado', 'abierto'),
-      supabase
-        .from('problemas')
-        .select('*, sucursal:sucursales(*)')
-        .eq('estado', 'abierto')
-        .order('prioridad')
-        .limit(5),
-      supabase
-        .from('visitas_programadas')
-        .select('*', { count: 'exact', head: true })
-        .eq('es_emergencia', true)
-        .in('estado', ['pendiente', 'en_progreso', 'parcial']),
-      supabase
-        .from('visitas_programadas')
-        .select('*', { count: 'exact', head: true })
-        .eq('fecha_programada', hoy)
-        .eq('estado', 'completada'),
+      supabase.from('problemas').select('*, sucursal:sucursales(*)').eq('estado', 'abierto').order('prioridad').limit(5),
+      supabase.from('visitas_programadas').select('*', { count: 'exact', head: true }).eq('es_emergencia', true).in('estado', ['pendiente', 'en_progreso', 'parcial']),
+      supabase.from('visitas_programadas').select('*', { count: 'exact', head: true }).eq('fecha_programada', hoy).eq('estado', 'completada'),
     ]);
+
+    const done = new Set((visitasHoy || []).filter((v) => v.estado === 'completada').map((v) => v.sucursal_id));
+    const next = (sucs || []).find((s) => !done.has(s.id)) || null;
 
     setStats({
       sucursales: sucCount || 0,
-      visitasPendientes: visitas?.length || 0,
-      visitasCompletadasHoy: completadasHoy || 0,
+      completadasHoy: completadasHoy || 0,
       problemasAbiertos: probCount || 0,
       emergencias: emergCount || 0,
     });
-    setVisitasHoy(visitas || []);
+    setSiguiente(next);
     setProblemas(probs || []);
     setLoading(false);
   }, []);
@@ -80,118 +64,97 @@ export default function DashboardPage() {
   }, [load]);
 
   const cards = [
-    { label: 'Sucursales activas', value: stats.sucursales, color: 'bg-sky-500', icon: '📍', href: '/dashboard/sucursales' },
-    { label: 'Pendientes hoy', value: stats.visitasPendientes, color: 'bg-emerald-500', icon: '🗓️', href: '/dashboard/ruta' },
-    { label: 'Completadas hoy', value: stats.visitasCompletadasHoy, color: 'bg-green-600', icon: '✅', href: '/dashboard/historial' },
-    { label: 'Problemas abiertos', value: stats.problemasAbiertos, color: 'bg-amber-500', icon: '⚠️', href: '/dashboard/problemas' },
-    { label: 'Emergencias activas', value: stats.emergencias, color: 'bg-red-500', icon: '🚨', href: '/dashboard/emergencias' },
+    { label: 'Sucursales', value: stats.sucursales, gradient: 'from-sky-500 to-cyan-500', href: '/dashboard/sucursales' },
+    { label: 'Hechas hoy', value: stats.completadasHoy, gradient: 'from-emerald-500 to-green-600', href: '/dashboard/historial' },
+    { label: 'Problemas', value: stats.problemasAbiertos, gradient: 'from-amber-400 to-orange-500', href: '/dashboard/problemas' },
+    { label: 'Emergencias', value: stats.emergencias, gradient: 'from-rose-500 to-red-600', href: '/dashboard/emergencias' },
   ];
 
   return (
-    <div className="space-y-6 sm:space-y-8">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div className="space-y-6 sm:space-y-8 max-w-6xl">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-800">Panel principal</h1>
-          <p className="text-slate-500 mt-1 text-sm">Resumen en vivo · se actualiza solo</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 tracking-tight">Panel principal</h1>
+          <p className="text-slate-500 mt-1 text-sm">Resumen en vivo del mantenimiento</p>
         </div>
         <button
           onClick={() => { setLoading(true); load(); }}
-          className="text-sm px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 self-start"
+          className="text-sm px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 shadow-sm self-start"
         >
           Actualizar
         </button>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {cards.map((c) => (
-          <Link
-            key={c.label}
-            href={c.href}
-            className="bg-white rounded-2xl border border-slate-100 p-4 sm:p-5 shadow-sm hover:border-sky-200 transition"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-xs sm:text-sm text-slate-500 truncate">{c.label}</p>
-                <p className="text-2xl sm:text-3xl font-bold text-slate-800 mt-1">
-                  {loading ? '—' : c.value}
-                </p>
-              </div>
-              <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl ${c.color} text-white flex items-center justify-center text-lg shrink-0`}>
-                {c.icon}
-              </div>
-            </div>
+          <Link key={c.label} href={c.href}
+            className={`stat-card rounded-2xl p-4 sm:p-5 text-white bg-gradient-to-br ${c.gradient} shadow-lg hover:scale-[1.02] transition-transform`}>
+            <p className="text-xs sm:text-sm text-white/80 font-medium">{c.label}</p>
+            <p className="text-3xl sm:text-4xl font-bold mt-1 tabular-nums">{loading ? '—' : c.value}</p>
           </Link>
         ))}
       </div>
 
+      {siguiente && (
+        <Link href="/dashboard/ruta"
+          className="block card-elevated p-5 sm:p-6 border-l-4 border-l-sky-500 hover:border-l-sky-600 transition">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-sky-600 mb-1">Siguiente en la ruta</p>
+              <h2 className="text-xl font-bold text-slate-800">{siguiente.nombre}</h2>
+              <p className="text-sm text-slate-500 mt-1">{siguiente.direccion}</p>
+              <p className="text-xs text-slate-400 mt-2">
+                {siguiente.cantidad_mini_split} Mini · {siguiente.cantidad_equipos_grandes} grandes · {siguiente.cantidad_bombas_condensacion} bombas
+                {' · '}{marcaLabel(siguiente.marca)}
+              </p>
+            </div>
+            <span className="btn-primary px-5 py-2.5 text-sm inline-flex self-start sm:self-center">
+              Ir a la ruta →
+            </span>
+          </div>
+        </Link>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-          <div className="px-4 sm:px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h2 className="font-semibold text-slate-800">Pendientes de hoy</h2>
-            <Link href="/dashboard/ruta" className="text-sm text-sky-600 hover:underline">
-              Ir a ruta
-            </Link>
+        <div className="card-elevated overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+            <h2 className="font-semibold text-slate-800">Problemas abiertos</h2>
+            <Link href="/dashboard/problemas" className="text-sm text-sky-600 font-medium hover:underline">Ver todo</Link>
           </div>
           <div className="divide-y divide-slate-50">
-            {visitasHoy.length === 0 ? (
-              <p className="p-5 text-slate-400 text-sm">
-                No hay visitas pendientes. Las completadas están en el historial.
-              </p>
+            {problemas.length === 0 ? (
+              <p className="p-6 text-slate-400 text-sm text-center">Sin problemas abiertos</p>
             ) : (
-              visitasHoy.map((v) => (
-                <div key={v.id} className="px-4 sm:px-5 py-3 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-sm font-medium text-slate-600 shrink-0">
-                    {v.orden_del_dia}
+              problemas.map((p) => (
+                <div key={p.id} className="px-5 py-3.5 flex gap-3 items-start">
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-md shrink-0 ${
+                    p.prioridad === '1' || p.prioridad === '2' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'
+                  }`}>P{p.prioridad}</span>
+                  <div className="min-w-0">
+                    <div className="font-medium text-slate-800 truncate">{p.titulo}</div>
+                    <div className="text-xs text-slate-400">{p.sucursal?.nombre}</div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-slate-800 truncate">
-                      {v.sucursal?.nombre || 'Sucursal'}
-                    </div>
-                    <div className="text-xs text-slate-400">
-                      {v.sucursal && marcaLabel(v.sucursal.marca)} · {formatHoras(v.sucursal?.tiempo_estimado_minutos || 0)}
-                      {v.es_emergencia && (
-                        <span className="ml-2 text-red-500 font-medium">Emergencia P{v.prioridad_emergencia}</span>
-                      )}
-                    </div>
-                  </div>
-                  <span className={`text-xs px-2 py-1 rounded-full shrink-0 ${estadoVisitaColor(v.estado)}`}>
-                    {v.estado.replace('_', ' ')}
-                  </span>
                 </div>
               ))
             )}
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-          <div className="px-4 sm:px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h2 className="font-semibold text-slate-800">Problemas abiertos</h2>
-            <Link href="/dashboard/problemas" className="text-sm text-sky-600 hover:underline">
-              Ver todo
-            </Link>
-          </div>
-          <div className="divide-y divide-slate-50">
-            {problemas.length === 0 ? (
-              <p className="p-5 text-slate-400 text-sm">No hay problemas abiertos</p>
-            ) : (
-              problemas.map((p) => (
-                <div key={p.id} className="px-4 sm:px-5 py-3">
-                  <div className="flex items-start gap-2">
-                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 ${
-                      p.prioridad === '1' || p.prioridad === '2' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
-                    }`}>
-                      P{p.prioridad}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-slate-800 truncate">{p.titulo}</div>
-                      <div className="text-xs text-slate-400">
-                        {p.sucursal?.nombre} · {p.sucursal && marcaLabel(p.sucursal.marca)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
+        <div className="card-elevated p-5 sm:p-6">
+          <h2 className="font-semibold text-slate-800 mb-4">Accesos rápidos</h2>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { href: '/dashboard/ruta', label: 'Ruta del día', desc: 'Atender siguiente' },
+              { href: '/dashboard/problemas', label: 'Reportar', desc: 'Nuevo problema' },
+              { href: '/dashboard/historial', label: 'Historial', desc: 'Trabajos hechos' },
+              { href: '/dashboard/sucursales', label: 'Sucursales', desc: 'Equipos y orden' },
+            ].map((a) => (
+              <Link key={a.href} href={a.href}
+                className="rounded-xl border border-slate-100 bg-slate-50/80 hover:bg-sky-50 hover:border-sky-200 p-4 transition group">
+                <div className="font-semibold text-slate-800 group-hover:text-sky-700 text-sm">{a.label}</div>
+                <div className="text-xs text-slate-400 mt-0.5">{a.desc}</div>
+              </Link>
+            ))}
           </div>
         </div>
       </div>
