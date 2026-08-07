@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { marcaLabel } from '@/lib/utils';
 import { registrarBitacora } from '@/lib/bitacora';
-import { resolveFiles, prepareFilesForUpload } from '@/lib/storage';
+import { resolveFiles } from '@/lib/storage';
 import type { Sucursal, Perfil, VisitaProgramada } from '@/types/database';
 
 type Fila = Sucursal & { visitaHoy?: VisitaProgramada | null };
@@ -32,37 +32,22 @@ export default function RutaPage() {
 
   const load = async () => {
     setLoading(true);
-    const [{ data: sucs }, { data: visitasHoy }, { data: emergenciasActivas }, { data: { user } }] = await Promise.all([
+    const [{ data: sucs }, { data: visitas }, { data: { user } }] = await Promise.all([
       supabase.from('sucursales').select('*').eq('activa', true).order('orden_ciclo'),
       supabase.from('visitas_programadas').select('*').eq('fecha_programada', hoy),
-      supabase.from('visitas_programadas').select('*').eq('es_emergencia', true).neq('estado', 'completada'),
       supabase.auth.getUser(),
     ]);
-    // Unir visitas de hoy + emergencias pendientes (aunque sean de otro día)
-    const visitas = [...(visitasHoy || [])];
-    for (const e of emergenciasActivas || []) {
-      if (!visitas.some((v) => v.id === e.id)) visitas.push(e);
-    }
 
     const bySuc = new Map<string, VisitaProgramada>();
     for (const v of visitas || []) {
       const prev = bySuc.get(v.sucursal_id);
       if (!prev) {
         bySuc.set(v.sucursal_id, v);
-        continue;
-      }
-      // Preferir pendientes sobre completadas
-      if (prev.estado === 'completada' && v.estado !== 'completada') {
+      } else if (prev.estado === 'completada' && v.estado !== 'completada') {
         bySuc.set(v.sucursal_id, v);
-        continue;
-      }
-      if (prev.estado !== 'completada' && v.estado === 'completada') continue;
-      // Preferir emergencias
-      if (v.es_emergencia && !prev.es_emergencia) {
-        bySuc.set(v.sucursal_id, v);
-        continue;
-      }
-      if ((v.fecha_fin || v.created_at) > (prev.fecha_fin || prev.created_at)) {
+      } else if (prev.estado !== 'completada' && v.estado === 'completada') {
+        // keep pending
+      } else if ((v.fecha_fin || v.created_at) > (prev.fecha_fin || prev.created_at)) {
         bySuc.set(v.sucursal_id, v);
       }
     }
@@ -161,11 +146,10 @@ export default function RutaPage() {
 
       if (visitaId && evidencias.length > 0) {
         try {
-          const prepared = await prepareFilesForUpload(evidencias);
-          await Promise.all(prepared.map(async (file) => {
+          for (const file of evidencias) {
             const ext = file.name.split('.').pop() || 'jpg';
             const path = 'visitas/' + visitaId + '/' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.' + ext;
-            const { error: upErr } = await supabase.storage.from('archivos').upload(path, file, { contentType: file.type });
+            const { error: upErr } = await supabase.storage.from('archivos').upload(path, file);
             if (!upErr) {
               const { data: urlData } = supabase.storage.from('archivos').getPublicUrl(path);
               await supabase.from('archivos_visita').insert({
@@ -175,13 +159,12 @@ export default function RutaPage() {
                 nombre_archivo: file.name,
               });
             }
-          }));
+          }
         } catch { /* ignore */ }
       }
 
       if (modoCierre === 'completa') {
         await moverAlFinal(sucursalId);
-        // Cerrar problemas abiertos de esta sucursal
         try {
           await supabase
             .from('problemas')
@@ -193,20 +176,6 @@ export default function RutaPage() {
             })
             .eq('sucursal_id', sucursalId)
             .eq('estado', 'abierto');
-        } catch { /* ignore */ }
-        // Cerrar TODAS las emergencias pendientes de esta sucursal
-        try {
-          await supabase
-            .from('visitas_programadas')
-            .update({
-              estado: 'completada',
-              fecha_fin: new Date().toISOString(),
-              tecnico_id: user?.id,
-              trabajo_realizado: trabajo || 'Cerrada desde ruta del día',
-            })
-            .eq('sucursal_id', sucursalId)
-            .eq('es_emergencia', true)
-            .neq('estado', 'completada');
         } catch { /* ignore */ }
       }
 
@@ -238,7 +207,7 @@ export default function RutaPage() {
     const ra = rank(a);
     const rb = rank(b);
     if (ra !== rb) return ra - rb;
-    return Number(a.orden_ciclo || 0) - Number(b.orden_ciclo || 0);
+    return (a.orden_ciclo || 0) - (b.orden_ciclo || 0);
   });
   const siguiente = pendientesOrdenados[0] || null;
   const probsSiguiente = problemasAbiertos.filter((p) => p.sucursal_id === siguiente?.id);
@@ -287,7 +256,7 @@ export default function RutaPage() {
         <div className="bg-white rounded-2xl border-2 border-sky-300 ring-2 ring-sky-100 p-5 sm:p-6 shadow-sm">
           <div className="flex items-center gap-2 mb-3 flex-wrap">
             <span className="text-xs font-semibold uppercase tracking-wide text-sky-600 bg-sky-50 px-2 py-1 rounded-lg">
-              {esEmergenciaHoy ? 'Siguiente · Emergencia' : 'Siguiente'}
+              Ahora · orden {siguiente.orden_ciclo}
             </span>
             <span className={'text-xs px-2 py-1 rounded-full font-medium ' + (siguiente.marca === 'le_cafe' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800')}>
               {marcaLabel(siguiente.marca)}
@@ -357,10 +326,10 @@ export default function RutaPage() {
         <div>
           <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Siguen en la cola</h3>
           <div className="space-y-2">
-            {proximas.map((f, idx) => (
+            {proximas.map((f) => (
               <div key={f.id} className="bg-slate-50/80 border border-slate-100 rounded-xl px-4 py-3 flex items-center gap-3">
                 <span className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-500 text-sm font-bold flex items-center justify-center shrink-0">
-                  {idx + 2}
+                  {f.orden_ciclo}
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="font-medium text-slate-700 truncate">{f.nombre}</div>

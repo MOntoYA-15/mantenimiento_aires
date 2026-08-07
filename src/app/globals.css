@@ -3,6 +3,9 @@
 :root {
   --background: #f1f5f9;
   --foreground: #0f172a;
+  --card: #ffffff;
+  --border: #e2e8f0;
+  --muted: #64748b;
 }
 
 @theme inline {
@@ -44,3 +47,53 @@ body {
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+/* Dark mode ONLY when html has .dark */
+html.dark {
+  color-scheme: dark;
+  --background: #0b1220;
+  --foreground: #e2e8f0;
+}
+
+html.dark body {
+  background: #0b1220;
+  color: #e2e8f0;
+}
+
+html.dark .app-bg {
+  background:
+    radial-gradient(ellipse 80% 50% at 0% -20%, rgba(14, 165, 233, 0.1), transparent),
+    #0b1220;
+}
+
+html.dark .card-elevated {
+  background: #111827;
+  border-color: #1f2937;
+}
+
+html.dark .bg-white { background-color: #111827 !important; }
+html.dark .bg-slate-50 { background-color: #0f172a !important; }
+html.dark .bg-slate-100 { background-color: #1e293b !important; }
+html.dark .text-slate-800,
+html.dark .text-slate-900,
+html.dark .text-slate-700 { color: #f1f5f9 !important; }
+html.dark .text-slate-600 { color: #cbd5e1 !important; }
+html.dark .text-slate-500,
+html.dark .text-slate-400 { color: #94a3b8 !important; }
+html.dark .border-slate-100,
+html.dark .border-slate-200 { border-color: #1f2937 !important; }
+html.dark aside {
+  background: #0b1220 !important;
+  border-color: #1f2937 !important;
+}
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: #0f172a !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+html.dark header {
+  background-color: #0b1220 !important;
+  border-color: #1f2937 !important;
+}

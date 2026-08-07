@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { marcaLabel, prioridadColor } from '@/lib/utils';
 import type { Problema, Sucursal, PrioridadEmergencia } from '@/types/database';
-import { resolveFiles, prepareFilesForUpload } from '@/lib/storage';
+import { resolveFiles } from '@/lib/storage';
 
 export default function ProblemasPage() {
   const [problemas, setProblemas] = useState<(Problema & { sucursal?: Sucursal })[]>([]);
@@ -29,25 +29,18 @@ export default function ProblemasPage() {
     const [{ data: probs }, { data: sucs }, { data: { user } }] = await Promise.all([
       supabase
         .from('problemas')
-        .select('*, sucursal:sucursales(*)')
+        .select('*, sucursal:sucursales(*), archivos:archivos_problema(*)')
         .eq('estado', 'abierto')
         .order('created_at', { ascending: false }),
       supabase.from('sucursales').select('*').eq('activa', true).order('nombre'),
       supabase.auth.getUser(),
     ]);
-
-    // Cargar archivos por separado (más fiable que el join)
     const withFiles = await Promise.all((probs || []).map(async (pr) => {
-      const { data: archs } = await supabase
-        .from('archivos_problema')
-        .select('*')
-        .eq('problema_id', pr.id);
-      let archivos = archs || [];
-      if (archivos.length) {
-        const resolved = await resolveFiles(archivos);
-        archivos = resolved.map((a) => ({ ...a, url: a.viewUrl }));
+      if (pr.archivos?.length) {
+        const archivos = await resolveFiles(pr.archivos);
+        return { ...pr, archivos: archivos.map(a => ({ ...a, url: a.viewUrl })) };
       }
-      return { ...pr, archivos };
+      return pr;
     }));
     setProblemas(withFiles);
     setSucursales(sucs || []);
@@ -111,18 +104,18 @@ export default function ProblemasPage() {
       return;
     }
 
-    // Subir archivos (comprimidos en paralelo = más rápido)
+    // Subir archivos
     const fallosUpload: string[] = [];
-    const prepared = await prepareFilesForUpload(files);
-    await Promise.all(prepared.map(async (file) => {
+    for (const file of files) {
       const ext = file.name.split('.').pop() || 'bin';
       const path = `problemas/${problema.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from('archivos')
         .upload(path, file, { upsert: true, contentType: file.type });
+
       if (uploadError) {
         fallosUpload.push(file.name + ': ' + uploadError.message);
-        return;
+        continue;
       }
       const { data: urlData } = supabase.storage.from('archivos').getPublicUrl(path);
       const tipo = file.type.startsWith('video') ? 'video' : 'imagen';
@@ -133,11 +126,10 @@ export default function ProblemasPage() {
         nombre_archivo: file.name,
         tamanio_bytes: file.size,
       });
-    }));
-    if (fallosUpload.length) {
-      alert('Algunos archivos no se subieron.\n' + fallosUpload.join('\n'));
     }
-
+    if (fallosUpload.length) {
+      alert('Algunos archivos no se subieron. Revisa que el bucket "archivos" sea público.\n' + fallosUpload.join('\n'));
+    }
 
     // Prioridad 1 o 2 → primera en la ruta + visita de emergencia
     if (form.prioridad === '1' || form.prioridad === '2') {
@@ -266,48 +258,27 @@ export default function ProblemasPage() {
                     {new Date(p.created_at).toLocaleDateString('es-MX')}
                   </p>
 
-                  {/* Archivos multimedia */}
-                  <div className="mt-3">
-                    <p className="text-xs font-medium text-slate-500 mb-2">
-                      Archivos {(p.archivos && p.archivos.length > 0) ? `(${p.archivos.length})` : ''}
-                    </p>
-                    {p.archivos && p.archivos.length > 0 ? (
-                      <div className="flex gap-2 flex-wrap">
-                        {p.archivos.map((a: any) =>
-                          a.tipo === 'imagen' ? (
-                            <button
-                              key={a.id}
-                              type="button"
-                              onClick={() => setLightbox({ url: a.url, tipo: 'imagen' })}
-                              className="relative group"
-                            >
-                              <img
-                                src={a.url}
-                                alt={a.nombre_archivo || 'Foto'}
-                                className="w-24 h-24 object-cover rounded-xl border-2 border-slate-200 group-hover:border-sky-400 transition"
-                                onError={(e) => {
-                                  (e.target as HTMLImageElement).style.opacity = '0.3';
-                                }}
-                              />
-                              <span className="absolute bottom-1 left-1 text-[10px] bg-black/60 text-white px-1 rounded">Ver</span>
-                            </button>
-                          ) : (
-                            <button
-                              key={a.id}
-                              type="button"
-                              onClick={() => setLightbox({ url: a.url, tipo: 'video' })}
-                              className="w-24 h-24 bg-slate-100 rounded-xl flex flex-col items-center justify-center text-2xl border-2 border-slate-200 hover:border-sky-400"
-                            >
-                              <span>🎬</span>
-                              <span className="text-[10px] text-slate-500 mt-1">Video</span>
-                            </button>
-                          )
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-slate-400">Sin fotos ni videos adjuntos</p>
-                    )}
-                  </div>
+                  {/* Archivos */}
+                  {p.archivos && p.archivos.length > 0 && (
+                    <div className="flex gap-2 mt-3 flex-wrap">
+                      {p.archivos.map((a) =>
+                        a.tipo === 'imagen' ? (
+                          <button key={a.id} type="button" onClick={() => setLightbox({ url: a.url, tipo: 'imagen' })}>
+                            <img src={a.url} alt="" className="w-20 h-20 object-cover rounded-lg border" />
+                          </button>
+                        ) : (
+                          <button
+                            key={a.id}
+                            type="button"
+                            onClick={() => setLightbox({ url: a.url, tipo: 'video' })}
+                            className="w-20 h-20 bg-slate-100 rounded-lg flex items-center justify-center text-2xl border"
+                          >
+                            🎬
+                          </button>
+                        )
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-col gap-2 shrink-0">
                   {p.estado === 'abierto' && (
