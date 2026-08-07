@@ -27,7 +27,6 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Fondo sutil con gradiente */
 .app-bg {
   background:
     radial-gradient(ellipse 80% 50% at 0% -20%, rgba(14, 165, 233, 0.12), transparent),
@@ -39,16 +38,8 @@ body {
 .card-elevated {
   background: white;
   border: 1px solid rgba(226, 232, 240, 0.9);
-  box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.04),
-    0 4px 16px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 16px rgba(15, 23, 42, 0.04);
   border-radius: 1rem;
-}
-
-.card-elevated:hover {
-  box-shadow:
-    0 2px 4px rgba(15, 23, 42, 0.05),
-    0 8px 24px rgba(15, 23, 42, 0.06);
 }
 
 .btn-primary {
@@ -57,12 +48,6 @@ body {
   font-weight: 600;
   border-radius: 0.75rem;
   box-shadow: 0 4px 14px rgba(14, 165, 233, 0.35);
-  transition: transform 0.15s, box-shadow 0.15s;
-}
-
-.btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(14, 165, 233, 0.4);
 }
 
 .btn-success {
@@ -70,14 +55,9 @@ body {
   color: white;
   font-weight: 600;
   border-radius: 0.75rem;
-  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
 }
 
-.stat-card {
-  position: relative;
-  overflow: hidden;
-}
-
+.stat-card { position: relative; overflow: hidden; }
 .stat-card::after {
   content: '';
   position: absolute;
@@ -89,48 +69,105 @@ body {
   pointer-events: none;
 }
 
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 
-/* Dark mode */
+/* ========== DARK MODE ========== */
 html.dark {
-  --background: #0f172a;
-  --foreground: #f1f5f9;
-  --card: #1e293b;
-  --border: #334155;
+  --background: #0b1220;
+  --foreground: #e2e8f0;
+  --card: #111827;
+  --border: #1f2937;
   --muted: #94a3b8;
+  color-scheme: dark;
 }
 
 html.dark body {
-  background: #0f172a;
-  color: #f1f5f9;
+  background: #0b1220;
+  color: #e2e8f0;
 }
 
 html.dark .app-bg {
   background:
-    radial-gradient(ellipse 80% 50% at 0% -20%, rgba(14, 165, 233, 0.15), transparent),
-    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(16, 185, 129, 0.08), transparent),
-    #0f172a;
+    radial-gradient(ellipse 80% 50% at 0% -20%, rgba(14, 165, 233, 0.12), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(56, 189, 248, 0.06), transparent),
+    #0b1220;
 }
 
 html.dark .card-elevated {
-  background: #1e293b;
-  border-color: #334155;
+  background: #111827;
+  border-color: #1f2937;
 }
 
+/* Fondos claros → oscuros */
+html.dark .bg-white,
+html.dark .bg-white\/70,
+html.dark .bg-white\/80,
+html.dark .bg-white\/90 {
+  background-color: #111827 !important;
+}
+html.dark .bg-slate-50,
+html.dark .bg-slate-50\/50,
+html.dark .bg-slate-50\/80 {
+  background-color: #0f172a !important;
+}
+html.dark .bg-slate-100,
+html.dark .bg-slate-100\/80 {
+  background-color: #1e293b !important;
+}
+
+/* Textos */
+html.dark .text-slate-800,
+html.dark .text-slate-900,
+html.dark .text-slate-700 {
+  color: #f1f5f9 !important;
+}
+html.dark .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+html.dark .text-slate-500,
+html.dark .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+/* Bordes */
+html.dark .border-slate-100,
+html.dark .border-slate-200,
+html.dark .border-slate-200\/60,
+html.dark .border-slate-200\/80 {
+  border-color: #1f2937 !important;
+}
+html.dark .divide-slate-50 > :not([hidden]) ~ :not([hidden]),
+html.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #1f2937 !important;
+}
+
+/* Sidebar */
 html.dark aside {
-  background: rgba(15, 23, 42, 0.95) !important;
-  border-color: #1e293b !important;
+  background: #0b1220 !important;
+  border-color: #1f2937 !important;
+}
+html.dark aside .text-slate-600 {
+  color: #94a3b8 !important;
+}
+
+/* Inputs */
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: #0f172a !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+
+/* Hover */
+html.dark .hover\:bg-slate-50:hover,
+html.dark .hover\:bg-slate-50\/50:hover {
+  background-color: #1e293b !important;
+}
+
+/* Header sticky */
+html.dark header {
+  background-color: rgba(11, 18, 32, 0.9) !important;
+  border-color: #1f2937 !important;
 }

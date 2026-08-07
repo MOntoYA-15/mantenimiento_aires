@@ -96,24 +96,63 @@ export default function ProblemasPage() {
       return;
     }
 
-    // Subir archivos a Supabase Storage
+    // Subir archivos
+    const fallosUpload: string[] = [];
     for (const file of files) {
-      const ext = file.name.split('.').pop();
-      const path = `problemas/${problema.id}/${Date.now()}.${ext}`;
+      const ext = file.name.split('.').pop() || 'bin';
+      const path = `problemas/${problema.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from('archivos')
-        .upload(path, file);
+        .upload(path, file, { upsert: true, contentType: file.type });
 
-      if (!uploadError) {
-        const { data: urlData } = supabase.storage.from('archivos').getPublicUrl(path);
-        const tipo = file.type.startsWith('video') ? 'video' : 'imagen';
-        await supabase.from('archivos_problema').insert({
-          problema_id: problema.id,
-          url: urlData.publicUrl,
-          tipo,
-          nombre_archivo: file.name,
-          tamanio_bytes: file.size,
-        });
+      if (uploadError) {
+        fallosUpload.push(file.name + ': ' + uploadError.message);
+        continue;
+      }
+      const { data: urlData } = supabase.storage.from('archivos').getPublicUrl(path);
+      const tipo = file.type.startsWith('video') ? 'video' : 'imagen';
+      await supabase.from('archivos_problema').insert({
+        problema_id: problema.id,
+        url: urlData.publicUrl,
+        tipo,
+        nombre_archivo: file.name,
+        tamanio_bytes: file.size,
+      });
+    }
+    if (fallosUpload.length) {
+      alert('Algunos archivos no se subieron. Revisa que el bucket "archivos" sea público.\n' + fallosUpload.join('\n'));
+    }
+
+    // Prioridad 1 o 2 → primera en la ruta + visita de emergencia
+    if (form.prioridad === '1' || form.prioridad === '2') {
+      const hoy = new Date().toISOString().split('T')[0];
+      const { data: visita } = await supabase
+        .from('visitas_programadas')
+        .insert({
+          sucursal_id: form.sucursal_id,
+          fecha_programada: hoy,
+          orden_del_dia: 0,
+          estado: 'pendiente',
+          es_emergencia: true,
+          prioridad_emergencia: form.prioridad,
+        })
+        .select()
+        .single();
+      if (visita) {
+        await supabase
+          .from('problemas')
+          .update({ convertido_a_emergencia: true, visita_emergencia_id: visita.id })
+          .eq('id', problema.id);
+      }
+      const { data: todas } = await supabase
+        .from('sucursales')
+        .select('id')
+        .eq('activa', true)
+        .order('orden_ciclo');
+      const rest = (todas || []).filter((s) => s.id !== form.sucursal_id);
+      await supabase.from('sucursales').update({ orden_ciclo: 1 }).eq('id', form.sucursal_id);
+      for (let i = 0; i < rest.length; i++) {
+        await supabase.from('sucursales').update({ orden_ciclo: i + 2 }).eq('id', rest[i].id);
       }
     }
 
