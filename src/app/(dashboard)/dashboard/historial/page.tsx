@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { formatHoras, marcaLabel, estadoVisitaColor } from '@/lib/utils';
+import { marcaLabel, estadoVisitaColor } from '@/lib/utils';
 import type { VisitaProgramada, Sucursal, ArchivoVisita, Perfil } from '@/types/database';
 
 type VisitaFull = VisitaProgramada & {
@@ -15,7 +15,7 @@ export default function HistorialPage() {
   const [visitas, setVisitas] = useState<VisitaFull[]>([]);
   const [loading, setLoading] = useState(true);
   const [detalle, setDetalle] = useState<VisitaFull | null>(null);
-  const [verEvidencias, setVerEvidencias] = useState(false);
+  const [lightbox, setLightbox] = useState<{ url: string; tipo: string } | null>(null);
   const supabase = createClient();
 
   useEffect(() => {
@@ -24,265 +24,189 @@ export default function HistorialPage() {
         .from('visitas_programadas')
         .select('*, sucursal:sucursales(*), tecnico:perfiles(*), archivos:archivos_visita(*)')
         .in('estado', ['completada', 'parcial'])
-        .order('fecha_programada', { ascending: false })
-        .limit(80);
-      setVisitas(data || []);
+        .order('created_at', { ascending: false })
+        .limit(120);
+
+      const sorted = (data || []).sort((a, b) => {
+        const ta = a.fecha_fin || a.created_at || '';
+        const tb = b.fecha_fin || b.created_at || '';
+        return tb.localeCompare(ta);
+      });
+      setVisitas(sorted);
       setLoading(false);
     }
     load();
   }, []);
 
+  const formatFecha = (iso?: string) => {
+    if (!iso) return '—';
+    try {
+      return new Date(iso).toLocaleString('es-MX', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return iso;
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl sm:text-2xl font-bold text-slate-800">Historial de mantenimientos</h1>
-        <p className="text-slate-500 mt-1 text-sm">Trabajos completados y parciales · detalle y evidencias</p>
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-800 dark:text-slate-100">Historial</h1>
+        <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm">
+          Lo más reciente arriba · toca una fila para ver detalle y evidencias
+        </p>
       </div>
 
       {loading ? (
         <p className="text-slate-400">Cargando...</p>
       ) : visitas.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-100 p-8 sm:p-12 text-center text-slate-400">
-          Aún no hay visitas completadas
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 p-10 text-center text-slate-400">
+          Aún no hay trabajos registrados
         </div>
       ) : (
-        <>
-          {/* Móvil */}
-          <div className="space-y-3 md:hidden">
-            {visitas.map((v) => (
-              <div key={v.id} className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="font-semibold text-slate-800">{v.sucursal?.nombre}</div>
-                    <div className="text-xs text-slate-400">
-                      {v.fecha_programada} · {v.sucursal && marcaLabel(v.sucursal.marca)}
-                    </div>
-                  </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${estadoVisitaColor(v.estado)}`}>
-                    {v.estado}
+        <div className="space-y-3">
+          {visitas.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => setDetalle(v)}
+              className="w-full text-left bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 p-4 sm:p-5 shadow-sm hover:border-sky-200 dark:hover:border-sky-700 transition"
+            >
+              <div className="flex flex-wrap items-center gap-2 mb-1">
+                <h3 className="font-semibold text-slate-800 dark:text-slate-100">{v.sucursal?.nombre || 'Sucursal'}</h3>
+                {v.es_emergencia && (
+                  <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">
+                    Emergencia P{v.prioridad_emergencia}
                   </span>
-                </div>
-                <p className="text-sm text-slate-600 mt-2 line-clamp-2">{v.trabajo_realizado || 'Sin detalle'}</p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    onClick={() => { setDetalle(v); setVerEvidencias(false); }}
-                    className="text-xs px-3 py-1.5 bg-sky-50 text-sky-700 rounded-lg"
-                  >
-                    Ver detalle
-                  </button>
-                  {(v.archivos?.length || 0) > 0 && (
-                    <button
-                      onClick={() => { setDetalle(v); setVerEvidencias(true); }}
-                      className="text-xs px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg"
-                    >
-                      Evidencias ({v.archivos!.length})
-                    </button>
-                  )}
-                </div>
+                )}
+                <span className={'text-xs px-2 py-0.5 rounded-full ' + estadoVisitaColor(v.estado)}>
+                  {v.estado}
+                </span>
+                {(v.archivos?.length || 0) > 0 && (
+                  <span className="text-xs bg-sky-50 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300 px-2 py-0.5 rounded-full">
+                    {v.archivos!.length} archivo(s)
+                  </span>
+                )}
               </div>
-            ))}
-          </div>
-
-          {/* Desktop */}
-          <div className="hidden md:block bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-50 text-left text-slate-500">
-                    <th className="px-4 py-3 font-medium">Fecha</th>
-                    <th className="px-4 py-3 font-medium">Sucursal</th>
-                    <th className="px-4 py-3 font-medium">Tipo</th>
-                    <th className="px-4 py-3 font-medium">Estado</th>
-                    <th className="px-4 py-3 font-medium">Tiempo</th>
-                    <th className="px-4 py-3 font-medium">Técnico</th>
-                    <th className="px-4 py-3 font-medium">Trabajo</th>
-                    <th className="px-4 py-3 font-medium"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {visitas.map((v) => (
-                    <tr key={v.id} className="hover:bg-slate-50/50">
-                      <td className="px-4 py-3 whitespace-nowrap">{v.fecha_programada}</td>
-                      <td className="px-4 py-3">
-                        <div className="font-medium">{v.sucursal?.nombre}</div>
-                        <div className="text-xs text-slate-400">{v.sucursal && marcaLabel(v.sucursal.marca)}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        {v.es_emergencia ? (
-                          <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
-                            Emergencia P{v.prioridad_emergencia}
-                          </span>
-                        ) : (
-                          <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">Preventivo</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${estadoVisitaColor(v.estado)}`}>
-                          {v.estado}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">{formatHoras(v.tiempo_real_minutos || 0)}</td>
-                      <td className="px-4 py-3 text-slate-600">{v.tecnico?.nombre || '—'}</td>
-                      <td className="px-4 py-3 max-w-[180px] truncate text-slate-600">
-                        {v.trabajo_realizado || '—'}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap space-x-2">
-                        <button
-                          onClick={() => { setDetalle(v); setVerEvidencias(false); }}
-                          className="text-sky-600 hover:underline text-sm"
-                        >
-                          Detalle
-                        </button>
-                        {(v.archivos?.length || 0) > 0 && (
-                          <button
-                            onClick={() => { setDetalle(v); setVerEvidencias(true); }}
-                            className="text-slate-600 hover:underline text-sm"
-                          >
-                            Fotos ({v.archivos!.length})
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>
+              <p className="text-xs text-slate-400">
+                {formatFecha(v.fecha_fin || v.created_at)}
+                {v.sucursal && ' · ' + marcaLabel(v.sucursal.marca)}
+                {v.tecnico?.nombre && ' · ' + v.tecnico.nombre}
+              </p>
+              {v.trabajo_realizado && (
+                <p className="text-sm text-slate-600 dark:text-slate-300 mt-2 line-clamp-2">{v.trabajo_realizado}</p>
+              )}
+            </button>
+          ))}
+        </div>
       )}
 
-      {/* Modal detalle / evidencias */}
       {detalle && (
-        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-lg max-h-[92vh] overflow-y-auto">
-            <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-lg max-h-[92vh] overflow-y-auto">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-start sticky top-0 bg-white dark:bg-slate-800">
               <div>
-                <h3 className="font-semibold text-lg">
-                  {verEvidencias ? 'Evidencias fotográficas' : 'Detalle del trabajo'}
-                </h3>
-                <p className="text-sm text-slate-500">{detalle.sucursal?.nombre}</p>
+                <h3 className="font-semibold text-lg text-slate-800 dark:text-slate-100">{detalle.sucursal?.nombre}</h3>
+                <p className="text-sm text-slate-500">{formatFecha(detalle.fecha_fin || detalle.created_at)}</p>
               </div>
               <button onClick={() => setDetalle(null)} className="text-slate-400 text-2xl p-1">×</button>
             </div>
-
-            {!verEvidencias ? (
-              <div className="p-4 sm:p-6 space-y-4 text-sm">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <div className="text-xs text-slate-400">Fecha</div>
-                    <div className="font-medium">{detalle.fecha_programada}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-slate-400">Estado</div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${estadoVisitaColor(detalle.estado)}`}>
-                      {detalle.estado}
-                    </span>
-                  </div>
-                  <div>
-                    <div className="text-xs text-slate-400">Tiempo real</div>
-                    <div className="font-medium">{formatHoras(detalle.tiempo_real_minutos || 0)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-slate-400">Técnico</div>
-                    <div className="font-medium">{detalle.tecnico?.nombre || '—'}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-slate-400">Tipo</div>
-                    <div className="font-medium">
-                      {detalle.es_emergencia ? `Emergencia P${detalle.prioridad_emergencia}` : 'Preventivo'}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-slate-400">Marca</div>
-                    <div className="font-medium">{detalle.sucursal && marcaLabel(detalle.sucursal.marca)}</div>
-                  </div>
-                </div>
-
+            <div className="p-4 sm:p-6 space-y-4 text-sm">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <div className="text-xs text-slate-400 mb-1">Trabajo realizado</div>
-                  <div className="bg-slate-50 rounded-xl p-3 text-slate-700 whitespace-pre-wrap">
-                    {detalle.trabajo_realizado || 'Sin registro'}
+                  <div className="text-xs text-slate-400">Estado</div>
+                  <span className={'text-xs px-2 py-0.5 rounded-full ' + estadoVisitaColor(detalle.estado)}>{detalle.estado}</span>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-400">Técnico</div>
+                  <div className="font-medium text-slate-800 dark:text-slate-100">{detalle.tecnico?.nombre || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-400">Tipo</div>
+                  <div className="font-medium text-slate-800 dark:text-slate-100">
+                    {detalle.es_emergencia ? 'Emergencia P' + detalle.prioridad_emergencia : 'Preventivo'}
                   </div>
                 </div>
-
-                {detalle.observaciones && (
-                  <div>
-                    <div className="text-xs text-slate-400 mb-1">Observaciones</div>
-                    <div className="bg-slate-50 rounded-xl p-3 text-slate-700 whitespace-pre-wrap">
-                      {detalle.observaciones}
-                    </div>
+                <div>
+                  <div className="text-xs text-slate-400">Marca</div>
+                  <div className="font-medium text-slate-800 dark:text-slate-100">
+                    {detalle.sucursal && marcaLabel(detalle.sucursal.marca)}
                   </div>
-                )}
-
-                {detalle.estado === 'parcial' && (
-                  <div className="bg-amber-50 rounded-xl p-3 text-amber-800">
-                    <div className="font-medium text-sm mb-1">Pendientes</div>
-                    <div>Total aires: {detalle.aires_pendientes || 0}</div>
-                    {(detalle.mini_split_pendientes || 0) > 0 && (
-                      <div>Mini Split: {detalle.mini_split_pendientes}</div>
-                    )}
-                    {(detalle.equipos_grandes_pendientes || 0) > 0 && (
-                      <div>Equipos grandes: {detalle.equipos_grandes_pendientes}</div>
-                    )}
-                  </div>
-                )}
-
-                {(detalle.archivos?.length || 0) > 0 && (
-                  <button
-                    onClick={() => setVerEvidencias(true)}
-                    className="w-full py-2.5 rounded-xl bg-slate-100 text-slate-700 font-medium text-sm"
-                  >
-                    Ver evidencias ({detalle.archivos!.length})
-                  </button>
-                )}
-
-                <button onClick={() => setDetalle(null)}
-                  className="w-full py-2.5 rounded-xl border border-slate-200 text-slate-600">
-                  Cerrar
-                </button>
+                </div>
               </div>
-            ) : (
-              <div className="p-4 sm:p-6 space-y-4">
-                <button
-                  onClick={() => setVerEvidencias(false)}
-                  className="text-sm text-sky-600 hover:underline"
-                >
-                  ← Volver al detalle
-                </button>
+
+              <div>
+                <div className="text-xs text-slate-400 mb-1">Trabajo realizado</div>
+                <div className="bg-slate-50 dark:bg-slate-900 rounded-xl p-3 text-slate-700 dark:text-slate-200 whitespace-pre-wrap">
+                  {detalle.trabajo_realizado || 'Sin registro'}
+                </div>
+              </div>
+
+              {detalle.observaciones && (
+                <div>
+                  <div className="text-xs text-slate-400 mb-1">Observaciones</div>
+                  <div className="bg-slate-50 dark:bg-slate-900 rounded-xl p-3 text-slate-700 dark:text-slate-200 whitespace-pre-wrap">
+                    {detalle.observaciones}
+                  </div>
+                </div>
+              )}
+
+              {detalle.estado === 'parcial' && (
+                <div className="bg-amber-50 dark:bg-amber-900/30 rounded-xl p-3 text-amber-800 dark:text-amber-200 text-sm">
+                  Pendientes: {detalle.aires_pendientes || 0} aires
+                  {(detalle.mini_split_pendientes || 0) > 0 && ' · mini ' + detalle.mini_split_pendientes}
+                  {(detalle.equipos_grandes_pendientes || 0) > 0 && ' · grandes ' + detalle.equipos_grandes_pendientes}
+                  {(detalle.bombas_pendientes || 0) > 0 && ' · bombas ' + detalle.bombas_pendientes}
+                </div>
+              )}
+
+              <div>
+                <div className="text-xs text-slate-400 mb-2">Evidencias</div>
                 {!detalle.archivos || detalle.archivos.length === 0 ? (
-                  <p className="text-slate-400 text-sm">No hay evidencias en esta visita</p>
+                  <p className="text-slate-400 text-sm">No hay fotos ni videos en esta visita</p>
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
                     {detalle.archivos.map((a) =>
                       a.tipo === 'imagen' ? (
-                        <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="block">
-                          <img
-                            src={a.url}
-                            alt={a.nombre_archivo || 'Evidencia'}
-                            className="w-full h-36 object-cover rounded-xl border border-slate-100"
-                          />
-                        </a>
+                        <button key={a.id} type="button" onClick={() => setLightbox({ url: a.url, tipo: 'imagen' })}
+                          className="block w-full">
+                          <img src={a.url} alt={a.nombre_archivo || 'Evidencia'}
+                            className="w-full h-36 object-cover rounded-xl border border-slate-100 dark:border-slate-600" />
+                        </button>
                       ) : (
-                        <a
-                          key={a.id}
-                          href={a.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="h-36 bg-slate-100 rounded-xl flex items-center justify-center text-3xl border"
-                        >
-                          🎬
-                        </a>
+                        <button key={a.id} type="button" onClick={() => setLightbox({ url: a.url, tipo: 'video' })}
+                          className="h-36 bg-slate-100 dark:bg-slate-700 rounded-xl flex flex-col items-center justify-center border gap-1">
+                          <span className="text-3xl">🎬</span>
+                          <span className="text-xs text-slate-500">Ver video</span>
+                        </button>
                       )
                     )}
                   </div>
                 )}
-                <button onClick={() => setDetalle(null)}
-                  className="w-full py-2.5 rounded-xl border border-slate-200 text-slate-600">
-                  Cerrar
-                </button>
               </div>
-            )}
+
+              <button onClick={() => setDetalle(null)}
+                className="w-full py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300">
+                Cerrar
+              </button>
+            </div>
           </div>
+        </div>
+      )}
+
+      {lightbox && (
+        <div className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4" onClick={() => setLightbox(null)}>
+          {lightbox.tipo === 'imagen' ? (
+            <img src={lightbox.url} alt="" className="max-w-full max-h-[90vh] rounded-lg object-contain" />
+          ) : (
+            <video src={lightbox.url} controls autoPlay className="max-w-full max-h-[90vh] rounded-lg" onClick={(e) => e.stopPropagation()} />
+          )}
+          <button onClick={() => setLightbox(null)} className="absolute top-4 right-4 text-white text-3xl">×</button>
         </div>
       )}
     </div>

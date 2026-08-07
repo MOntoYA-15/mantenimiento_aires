@@ -21,6 +21,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [perfil, setPerfil] = useState<Perfil | null>(null);
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [darkMode, setDarkMode] = useState(false);
+
+  useEffect(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('ac-theme') : null;
+    const preferDark = saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    setDarkMode(preferDark);
+    document.documentElement.classList.toggle('dark', preferDark);
+  }, []);
+
+  const toggleDark = () => {
+    const next = !darkMode;
+    setDarkMode(next);
+    document.documentElement.classList.toggle('dark', next);
+    localStorage.setItem('ac-theme', next ? 'dark' : 'light');
+  };
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
@@ -141,7 +156,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       <div className="flex-1 md:ml-64 min-w-0 flex flex-col min-h-screen">
-        <header className="sticky top-0 z-10 bg-white/70 backdrop-blur-md border-b border-slate-200/60 px-4 py-3 flex items-center gap-3 md:px-8">
+        <header className="sticky top-0 z-10 bg-white/70 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200/60 dark:border-slate-700 px-4 py-3 flex items-center gap-3 md:px-8">
           <button
             onClick={() => setMenuOpen(true)}
             className="md:hidden w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-600 shadow-sm"
@@ -149,11 +164,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             ☰
           </button>
           <div className="flex-1 min-w-0">
-            <p className="text-sm text-slate-500 truncate">
+            <p className="text-sm text-slate-500 dark:text-slate-400 truncate">
               {saludo}, <span className="font-semibold text-slate-800">{perfil?.nombre?.split(' ')[0]}</span>
             </p>
           </div>
-          <div className="hidden sm:flex items-center gap-2 text-xs text-slate-400 bg-white/80 border border-slate-100 px-3 py-1.5 rounded-full">
+          <button
+            type="button"
+            onClick={toggleDark}
+            className="w-10 h-10 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 flex items-center justify-center text-lg shadow-sm"
+            title={darkMode ? 'Modo claro' : 'Modo oscuro'}
+          >
+            {darkMode ? '☀️' : '🌙'}
+          </button>
+          <div className="hidden sm:flex items-center gap-2 text-xs text-slate-400 bg-white/80 dark:bg-slate-800 border border-slate-100 dark:border-slate-600 px-3 py-1.5 rounded-full">
             {new Date().toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' })}
           </div>
         </header>

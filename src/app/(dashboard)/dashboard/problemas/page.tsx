@@ -19,6 +19,7 @@ export default function ProblemasPage() {
     prioridad: '3' as PrioridadEmergencia,
   });
   const [files, setFiles] = useState<File[]>([]);
+  const [lightbox, setLightbox] = useState<{ url: string; tipo: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const supabase = createClient();
 
@@ -124,7 +125,7 @@ export default function ProblemasPage() {
   };
 
   const convertirEmergencia = async (p: Problema) => {
-    if (!confirm(`¿Crear visita de emergencia (prioridad ${p.prioridad}) para esta sucursal hoy?`)) return;
+    if (!confirm(`¿Crear emergencia y poner esta sucursal primero en la ruta?`)) return;
 
     const hoy = new Date().toISOString().split('T')[0];
     const { data: visita } = await supabase
@@ -132,7 +133,7 @@ export default function ProblemasPage() {
       .insert({
         sucursal_id: p.sucursal_id,
         fecha_programada: hoy,
-        orden_del_dia: 0, // se pone al inicio
+        orden_del_dia: 0,
         estado: 'pendiente',
         es_emergencia: true,
         prioridad_emergencia: p.prioridad,
@@ -145,8 +146,21 @@ export default function ProblemasPage() {
         .from('problemas')
         .update({ convertido_a_emergencia: true, visita_emergencia_id: visita.id })
         .eq('id', p.id);
+
+      // Poner esta sucursal primera en la cola de la ruta
+      const { data: todas } = await supabase
+        .from('sucursales')
+        .select('id')
+        .eq('activa', true)
+        .order('orden_ciclo');
+      const rest = (todas || []).filter((s) => s.id !== p.sucursal_id);
+      await supabase.from('sucursales').update({ orden_ciclo: 1 }).eq('id', p.sucursal_id);
+      for (let i = 0; i < rest.length; i++) {
+        await supabase.from('sucursales').update({ orden_ciclo: i + 2 }).eq('id', rest[i].id);
+      }
     }
     load();
+    alert('Emergencia creada. La sucursal quedó primera en Ruta del día.');
   };
 
   return (
@@ -202,19 +216,18 @@ export default function ProblemasPage() {
                     <div className="flex gap-2 mt-3 flex-wrap">
                       {p.archivos.map((a) =>
                         a.tipo === 'imagen' ? (
-                          <a key={a.id} href={a.url} target="_blank" rel="noreferrer">
+                          <button key={a.id} type="button" onClick={() => setLightbox({ url: a.url, tipo: 'imagen' })}>
                             <img src={a.url} alt="" className="w-20 h-20 object-cover rounded-lg border" />
-                          </a>
+                          </button>
                         ) : (
-                          <a
+                          <button
                             key={a.id}
-                            href={a.url}
-                            target="_blank"
-                            rel="noreferrer"
+                            type="button"
+                            onClick={() => setLightbox({ url: a.url, tipo: 'video' })}
                             className="w-20 h-20 bg-slate-100 rounded-lg flex items-center justify-center text-2xl border"
                           >
                             🎬
-                          </a>
+                          </button>
                         )
                       )}
                     </div>
@@ -249,6 +262,17 @@ export default function ProblemasPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {lightbox && (
+        <div className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4" onClick={() => setLightbox(null)}>
+          {lightbox.tipo === 'imagen' ? (
+            <img src={lightbox.url} alt="" className="max-w-full max-h-[90vh] rounded-lg object-contain" />
+          ) : (
+            <video src={lightbox.url} controls autoPlay className="max-w-full max-h-[90vh] rounded-lg" onClick={(e) => e.stopPropagation()} />
+          )}
+          <button onClick={() => setLightbox(null)} className="absolute top-4 right-4 text-white text-3xl">×</button>
         </div>
       )}
 

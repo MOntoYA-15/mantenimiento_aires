@@ -22,6 +22,7 @@ export default function RutaPage() {
   const [bombasPend, setBombasPend] = useState(0);
   const [evidencias, setEvidencias] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
+  const [problemasAbiertos, setProblemasAbiertos] = useState<any[]>([]);
   const supabase = createClient();
 
   const puedeCerrar = perfil?.rol === 'admin' || perfil?.rol === 'tecnico';
@@ -50,6 +51,12 @@ export default function RutaPage() {
     }
 
     setFilas((sucs || []).map((s) => ({ ...s, visitaHoy: bySuc.get(s.id) || null })));
+    const { data: probs } = await supabase
+      .from('problemas')
+      .select('*, archivos:archivos_problema(*)')
+      .eq('estado', 'abierto')
+      .order('prioridad');
+    setProblemasAbiertos(probs || []);
     if (user) {
       const { data: p } = await supabase.from('perfiles').select('*').eq('id', user.id).single();
       setPerfil(p);
@@ -180,6 +187,8 @@ export default function RutaPage() {
   };
 
   const siguiente = filas.find((f) => f.visitaHoy?.estado !== 'completada');
+  const probsSiguiente = problemasAbiertos.filter((p) => p.sucursal_id === siguiente?.id);
+  const esEmergenciaHoy = siguiente?.visitaHoy?.es_emergencia;
   const proximas = filas.filter((f) => f.id !== siguiente?.id && f.visitaHoy?.estado !== 'completada');
   const completadasHoy = filas
     .filter((f) => f.visitaHoy?.estado === 'completada')
@@ -233,7 +242,36 @@ export default function RutaPage() {
               <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800">Parcial</span>
             )}
           </div>
-          <h2 className="text-xl font-bold text-slate-800">{siguiente.nombre}</h2>
+          <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">{siguiente.nombre}</h2>
+          {esEmergenciaHoy && (
+            <p className="mt-2 text-sm text-red-700 bg-red-50 dark:bg-red-900/30 dark:text-red-200 rounded-xl px-3 py-2 font-medium">
+              ⚡ Emergencia prioritaria en esta sucursal
+            </p>
+          )}
+          {probsSiguiente.length > 0 && (
+            <div className="mt-3 space-y-2">
+              {probsSiguiente.map((pr: any) => (
+                <div key={pr.id} className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-xl p-3 text-sm">
+                  <div className="font-semibold text-amber-900 dark:text-amber-200">Problema: {pr.titulo}</div>
+                  <p className="text-amber-800/80 dark:text-amber-300/80 text-xs mt-1">{pr.descripcion}</p>
+                  {pr.archivos && pr.archivos.length > 0 && (
+                    <div className="flex gap-2 mt-2 flex-wrap">
+                      {pr.archivos.map((a: any) =>
+                        a.tipo === 'imagen' ? (
+                          <a key={a.id} href={a.url} target="_blank" rel="noreferrer">
+                            <img src={a.url} alt="" className="w-16 h-16 object-cover rounded-lg border" />
+                          </a>
+                        ) : (
+                          <a key={a.id} href={a.url} target="_blank" rel="noreferrer"
+                            className="w-16 h-16 bg-slate-100 rounded-lg flex items-center justify-center text-xl border">🎬</a>
+                        )
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
           <p className="text-slate-500 mt-1">{siguiente.direccion}</p>
           <p className="text-sm text-slate-400 mt-2">
             {siguiente.cantidad_mini_split} Mini Split · {siguiente.cantidad_equipos_grandes} grandes · {siguiente.cantidad_bombas_condensacion} bombas
