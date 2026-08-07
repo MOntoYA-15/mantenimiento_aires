@@ -2,19 +2,17 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { marcaLabel, estadoVisitaColor } from '@/lib/utils';
+import { marcaLabel } from '@/lib/utils';
 import { registrarBitacora } from '@/lib/bitacora';
 import type { Sucursal, Perfil, VisitaProgramada } from '@/types/database';
 
-type FilaRuta = Sucursal & {
-  visitaHoy?: VisitaProgramada | null;
-};
+type Fila = Sucursal & { visitaHoy?: VisitaProgramada | null };
 
 export default function RutaPage() {
-  const [filas, setFilas] = useState<FilaRuta[]>([]);
+  const [filas, setFilas] = useState<Fila[]>([]);
   const [loading, setLoading] = useState(true);
   const [perfil, setPerfil] = useState<Perfil | null>(null);
-  const [selected, setSelected] = useState<FilaRuta | null>(null);
+  const [selected, setSelected] = useState<Fila | null>(null);
   const [modoCierre, setModoCierre] = useState<'completa' | 'parcial'>('completa');
   const [trabajo, setTrabajo] = useState('');
   const [obs, setObs] = useState('');
@@ -33,29 +31,25 @@ export default function RutaPage() {
     setLoading(true);
     const [{ data: sucs }, { data: visitas }, { data: { user } }] = await Promise.all([
       supabase.from('sucursales').select('*').eq('activa', true).order('orden_ciclo'),
-      supabase
-        .from('visitas_programadas')
-        .select('*')
-        .eq('fecha_programada', hoy)
-        .in('estado', ['pendiente', 'en_progreso', 'parcial', 'completada']),
+      supabase.from('visitas_programadas').select('*').eq('fecha_programada', hoy),
       supabase.auth.getUser(),
     ]);
 
     const bySuc = new Map<string, VisitaProgramada>();
     for (const v of visitas || []) {
       const prev = bySuc.get(v.sucursal_id);
-      // Preferir no-completada; si hay varias, la más reciente
-      if (!prev || (prev.estado === 'completada' && v.estado !== 'completada')) {
+      if (!prev) {
+        bySuc.set(v.sucursal_id, v);
+      } else if (prev.estado === 'completada' && v.estado !== 'completada') {
+        bySuc.set(v.sucursal_id, v);
+      } else if (prev.estado !== 'completada' && v.estado === 'completada') {
+        // keep pending
+      } else if ((v.fecha_fin || v.created_at) > (prev.fecha_fin || prev.created_at)) {
         bySuc.set(v.sucursal_id, v);
       }
     }
 
-    const list: FilaRuta[] = (sucs || []).map((s) => ({
-      ...s,
-      visitaHoy: bySuc.get(s.id) || null,
-    }));
-
-    setFilas(list);
+    setFilas((sucs || []).map((s) => ({ ...s, visitaHoy: bySuc.get(s.id) || null })));
     if (user) {
       const { data: p } = await supabase.from('perfiles').select('*').eq('id', user.id).single();
       setPerfil(p);
@@ -71,21 +65,17 @@ export default function RutaPage() {
     const { data: todas } = await supabase
       .from('sucursales')
       .select('id, orden_ciclo')
+      .eq('activa', true)
       .order('orden_ciclo');
-    const list = todas || [];
-    const max = list.length > 0 ? Math.max(...list.map((x) => x.orden_ciclo || 0)) : 0;
-    await supabase.from('sucursales').update({ orden_ciclo: max + 1 }).eq('id', sucursalId);
-    // Renumerar 1..n en orden
-    const { data: ordenadas } = await supabase
-      .from('sucursales')
-      .select('id')
-      .order('orden_ciclo');
-    for (let i = 0; i < (ordenadas || []).length; i++) {
-      await supabase.from('sucursales').update({ orden_ciclo: i + 1 }).eq('id', ordenadas![i].id);
+
+    const list = (todas || []).filter((x) => x.id !== sucursalId);
+    for (let i = 0; i < list.length; i++) {
+      await supabase.from('sucursales').update({ orden_ciclo: i + 1 }).eq('id', list[i].id);
     }
+    await supabase.from('sucursales').update({ orden_ciclo: list.length + 1 }).eq('id', sucursalId);
   };
 
-  const abrirCierre = (f: FilaRuta, modo: 'completa' | 'parcial') => {
+  const abrirCierre = (f: Fila, modo: 'completa' | 'parcial') => {
     setSelected(f);
     setModoCierre(modo);
     setTrabajo('');
@@ -105,7 +95,6 @@ export default function RutaPage() {
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
-
       const estado = modoCierre === 'completa' ? 'completada' : 'parcial';
       const payload: Record<string, unknown> = {
         tecnico_id: user?.id,
@@ -120,12 +109,8 @@ export default function RutaPage() {
       };
 
       let visitaId = selected.visitaHoy?.id;
-
-      if (visitaId) {
-        const { error } = await supabase
-          .from('visitas_programadas')
-          .update(payload)
-          .eq('id', visitaId);
+      if (visitaId && selected.visitaHoy?.estado !== 'completada') {
+        const { error } = await supabase.from('visitas_programadas').update(payload).eq('id', visitaId);
         if (error) throw error;
       } else {
         const { data: nueva, error } = await supabase
@@ -143,12 +128,11 @@ export default function RutaPage() {
         visitaId = nueva?.id;
       }
 
-      // Evidencias
       if (visitaId && evidencias.length > 0) {
         try {
           for (const file of evidencias) {
             const ext = file.name.split('.').pop() || 'jpg';
-            const path = `visitas/${visitaId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+            const path = 'visitas/' + visitaId + '/' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.' + ext;
             const { error: upErr } = await supabase.storage.from('archivos').upload(path, file);
             if (!upErr) {
               const { data: urlData } = supabase.storage.from('archivos').getPublicUrl(path);
@@ -160,9 +144,7 @@ export default function RutaPage() {
               });
             }
           }
-        } catch {
-          /* ignore */
-        }
+        } catch { /* ignore */ }
       }
 
       if (modoCierre === 'completa') {
@@ -178,9 +160,7 @@ export default function RutaPage() {
             })
             .eq('sucursal_id', sucursalId)
             .eq('estado', 'abierto');
-        } catch {
-          /* ignore */
-        }
+        } catch { /* ignore */ }
       }
 
       await registrarBitacora(
@@ -199,96 +179,126 @@ export default function RutaPage() {
     }
   };
 
+  const siguiente = filas.find((f) => f.visitaHoy?.estado !== 'completada');
+  const proximas = filas.filter((f) => f.id !== siguiente?.id && f.visitaHoy?.estado !== 'completada').slice(0, 8);
+  const completadasHoy = filas
+    .filter((f) => f.visitaHoy?.estado === 'completada')
+    .sort((a, b) => {
+      const ta = a.visitaHoy?.fecha_fin || a.visitaHoy?.created_at || '';
+      const tb = b.visitaHoy?.fecha_fin || b.visitaHoy?.created_at || '';
+      return tb.localeCompare(ta);
+    });
+
+  const formatFecha = (iso?: string) => {
+    if (!iso) return hoy;
+    try {
+      return new Date(iso).toLocaleString('es-MX', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return iso;
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-xl sm:text-2xl font-bold text-slate-800">Ruta del día</h1>
         <p className="text-slate-500 mt-1 text-sm">
-          Todas las sucursales activas. La de arriba es la siguiente. Al terminar, pasa al final de la cola.
+          Solo la siguiente sucursal. Al terminarla, pasa al final de la cola.
         </p>
       </div>
 
       {loading ? (
         <p className="text-slate-400">Cargando...</p>
-      ) : filas.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-100 p-10 text-center text-slate-400">
-          No hay sucursales activas. Agrégalas en Sucursales.
+      ) : !siguiente ? (
+        <div className="bg-white rounded-2xl border border-slate-100 p-10 text-center">
+          <p className="text-slate-600 font-medium">No hay sucursales pendientes</p>
+          <p className="text-sm text-slate-400 mt-1">Revisa completadas de hoy o el historial</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {filas.map((f, idx) => {
-            const estado = f.visitaHoy?.estado;
-            const esSiguiente = idx === 0 && estado !== 'completada';
-            return (
-              <div
-                key={f.id}
-                className={`bg-white rounded-2xl border p-4 sm:p-5 shadow-sm transition ${
-                  esSiguiente ? 'border-sky-300 ring-2 ring-sky-100' : 'border-slate-100'
-                }`}
-              >
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-                  <div
-                    className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shrink-0 ${
-                      esSiguiente ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-600'
-                    }`}
-                  >
-                    {f.orden_ciclo}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-semibold text-slate-800">{f.nombre}</h3>
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                          f.marca === 'le_cafe' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'
-                        }`}
-                      >
-                        {marcaLabel(f.marca)}
-                      </span>
-                      {esSiguiente && (
-                        <span className="text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full font-medium">
-                          Siguiente
-                        </span>
-                      )}
-                      {estado && (
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${estadoVisitaColor(estado)}`}>
-                          {estado.replace('_', ' ')}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-slate-500 mt-0.5 break-words">{f.direccion}</p>
-                    <p className="text-xs text-slate-400 mt-1">
-                      {f.cantidad_mini_split} Mini Split · {f.cantidad_equipos_grandes} grandes ·{' '}
-                      {f.cantidad_bombas_condensacion} bombas
-                    </p>
-                    {estado === 'parcial' && f.visitaHoy && (
-                      <p className="text-xs text-amber-600 mt-1">
-                        Pendiente: {f.visitaHoy.aires_pendientes || 0} aires
-                        {(f.visitaHoy.mini_split_pendientes || 0) > 0 && ` · ${f.visitaHoy.mini_split_pendientes} mini`}
-                        {(f.visitaHoy.equipos_grandes_pendientes || 0) > 0 && ` · ${f.visitaHoy.equipos_grandes_pendientes} grandes`}
-                        {(f.visitaHoy.bombas_pendientes || 0) > 0 && ` · ${f.visitaHoy.bombas_pendientes} bombas`}
-                      </p>
-                    )}
-                  </div>
-                  {puedeCerrar && estado !== 'completada' && (
-                    <div className="flex flex-wrap gap-2 shrink-0">
-                      <button
-                        onClick={() => abrirCierre(f, 'completa')}
-                        className="px-3 py-1.5 text-sm bg-green-50 text-green-700 rounded-lg hover:bg-green-100 font-medium"
-                      >
-                        Terminado
-                      </button>
-                      <button
-                        onClick={() => abrirCierre(f, 'parcial')}
-                        className="px-3 py-1.5 text-sm bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 font-medium"
-                      >
-                        Parcial
-                      </button>
-                    </div>
-                  )}
+        <div className="bg-white rounded-2xl border-2 border-sky-300 ring-2 ring-sky-100 p-5 sm:p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <span className="text-xs font-semibold uppercase tracking-wide text-sky-600 bg-sky-50 px-2 py-1 rounded-lg">
+              Ahora · orden {siguiente.orden_ciclo}
+            </span>
+            <span className={'text-xs px-2 py-1 rounded-full font-medium ' + (siguiente.marca === 'le_cafe' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800')}>
+              {marcaLabel(siguiente.marca)}
+            </span>
+            {siguiente.visitaHoy?.estado === 'parcial' && (
+              <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800">Parcial</span>
+            )}
+          </div>
+          <h2 className="text-xl font-bold text-slate-800">{siguiente.nombre}</h2>
+          <p className="text-slate-500 mt-1">{siguiente.direccion}</p>
+          <p className="text-sm text-slate-400 mt-2">
+            {siguiente.cantidad_mini_split} Mini Split · {siguiente.cantidad_equipos_grandes} grandes · {siguiente.cantidad_bombas_condensacion} bombas
+          </p>
+          {siguiente.visitaHoy?.estado === 'parcial' && (
+            <p className="text-sm text-amber-700 mt-2 bg-amber-50 rounded-xl px-3 py-2">
+              Pendiente: {siguiente.visitaHoy.aires_pendientes || 0} aires
+              {(siguiente.visitaHoy.mini_split_pendientes || 0) > 0 && (' · ' + siguiente.visitaHoy.mini_split_pendientes + ' mini')}
+              {(siguiente.visitaHoy.equipos_grandes_pendientes || 0) > 0 && (' · ' + siguiente.visitaHoy.equipos_grandes_pendientes + ' grandes')}
+              {(siguiente.visitaHoy.bombas_pendientes || 0) > 0 && (' · ' + siguiente.visitaHoy.bombas_pendientes + ' bombas')}
+            </p>
+          )}
+          {puedeCerrar && (
+            <div className="flex flex-wrap gap-3 mt-5">
+              <button onClick={() => abrirCierre(siguiente, 'completa')}
+                className="px-5 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-xl font-medium shadow-sm">
+                Terminado
+              </button>
+              <button onClick={() => abrirCierre(siguiente, 'parcial')}
+                className="px-5 py-2.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-xl font-medium">
+                Parcial
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {proximas.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Siguen en la cola</h3>
+          <div className="space-y-2">
+            {proximas.map((f) => (
+              <div key={f.id} className="bg-slate-50/80 border border-slate-100 rounded-xl px-4 py-3 flex items-center gap-3">
+                <span className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-500 text-sm font-bold flex items-center justify-center shrink-0">
+                  {f.orden_ciclo}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-slate-700 truncate">{f.nombre}</div>
+                  <div className="text-xs text-slate-400 truncate">{f.direccion}</div>
                 </div>
               </div>
-            );
-          })}
+            ))}
+          </div>
+        </div>
+      )}
+
+      {completadasHoy.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Completadas hoy</h3>
+          <div className="space-y-2">
+            {completadasHoy.map((f) => (
+              <div key={f.id} className="bg-green-50/50 border border-green-100 rounded-xl px-4 py-3 flex items-center gap-3">
+                <span className="text-green-600 text-lg">✓</span>
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-slate-800 truncate">{f.nombre}</div>
+                  <div className="text-xs text-slate-500">
+                    {formatFecha(f.visitaHoy?.fecha_fin || f.visitaHoy?.created_at)}
+                    {f.visitaHoy?.trabajo_realizado && (
+                      <span className="text-slate-400"> · {f.visitaHoy.trabajo_realizado.slice(0, 60)}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -301,7 +311,7 @@ export default function RutaPage() {
               </h3>
               <p className="text-sm text-slate-500">{selected.nombre}</p>
               {modoCierre === 'completa' && (
-                <p className="text-xs text-sky-600 mt-1">Al guardar, esta sucursal pasará al final de la cola.</p>
+                <p className="text-xs text-sky-600 mt-1">Al guardar, irá al final de la cola y saldrá la siguiente.</p>
               )}
             </div>
             <div className="p-4 sm:p-6 space-y-4">
@@ -322,26 +332,22 @@ export default function RutaPage() {
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-xs text-slate-600">Total aires</label>
-                      <input type="number" min={0} value={airesPendientes}
-                        onChange={(e) => setAiresPendientes(+e.target.value)}
+                      <input type="number" min={0} value={airesPendientes} onChange={(e) => setAiresPendientes(+e.target.value)}
                         className="w-full px-3 py-2 rounded-lg border border-slate-200 text-base" />
                     </div>
                     <div>
                       <label className="text-xs text-slate-600">Mini Split</label>
-                      <input type="number" min={0} value={miniPend}
-                        onChange={(e) => setMiniPend(+e.target.value)}
+                      <input type="number" min={0} value={miniPend} onChange={(e) => setMiniPend(+e.target.value)}
                         className="w-full px-3 py-2 rounded-lg border border-slate-200 text-base" />
                     </div>
                     <div>
                       <label className="text-xs text-slate-600">Grandes</label>
-                      <input type="number" min={0} value={grandesPend}
-                        onChange={(e) => setGrandesPend(+e.target.value)}
+                      <input type="number" min={0} value={grandesPend} onChange={(e) => setGrandesPend(+e.target.value)}
                         className="w-full px-3 py-2 rounded-lg border border-slate-200 text-base" />
                     </div>
                     <div>
-                      <label className="text-xs text-slate-600">Bombas / condensadores</label>
-                      <input type="number" min={0} value={bombasPend}
-                        onChange={(e) => setBombasPend(+e.target.value)}
+                      <label className="text-xs text-slate-600">Bombas</label>
+                      <input type="number" min={0} value={bombasPend} onChange={(e) => setBombasPend(+e.target.value)}
                         className="w-full px-3 py-2 rounded-lg border border-slate-200 text-base" />
                     </div>
                   </div>
@@ -354,12 +360,9 @@ export default function RutaPage() {
                   className="w-full text-sm text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-sky-50 file:text-sky-700" />
               </div>
               <div className="flex gap-3">
-                <button onClick={() => setSelected(null)}
-                  className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600">Cancelar</button>
+                <button onClick={() => setSelected(null)} className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600">Cancelar</button>
                 <button onClick={guardarCierre} disabled={saving}
-                  className={`flex-1 py-3 rounded-xl text-white font-medium disabled:opacity-60 ${
-                    modoCierre === 'completa' ? 'bg-green-500 hover:bg-green-600' : 'bg-amber-500 hover:bg-amber-600'
-                  }`}>
+                  className={'flex-1 py-3 rounded-xl text-white font-medium disabled:opacity-60 ' + (modoCierre === 'completa' ? 'bg-green-500' : 'bg-amber-500')}>
                   {saving ? 'Guardando...' : 'Guardar'}
                 </button>
               </div>
