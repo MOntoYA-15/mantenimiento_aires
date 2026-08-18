@@ -93,7 +93,9 @@ export default function UsuariosPage() {
       });
       const json = await res.json();
       if (!res.ok) {
-        showMsg(json.error || 'No se pudo eliminar');
+        const err = json.error || 'No se pudo eliminar';
+        showMsg(err);
+        alert(err);
         setSaving(null);
         return;
       }

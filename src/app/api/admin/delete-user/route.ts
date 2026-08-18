@@ -24,7 +24,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Verificar que quien llama es admin
     const userClient = createClient(url, anonKey, {
       global: { headers: { Authorization: `Bearer ${adminToken}` } },
     });
@@ -35,7 +34,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
-    // No puede eliminarse a sí mismo
     if (user.id === userId) {
       return NextResponse.json(
         { error: 'No puedes eliminar tu propia cuenta' },
@@ -43,13 +41,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { data: perfil } = await userClient
+    const { data: perfilAdmin } = await userClient
       .from('perfiles')
       .select('rol')
       .eq('id', user.id)
       .single();
 
-    if (perfil?.rol !== 'admin') {
+    if (perfilAdmin?.rol !== 'admin') {
       return NextResponse.json({ error: 'Solo administradores' }, { status: 403 });
     }
 
@@ -57,20 +55,44 @@ export async function POST(req: NextRequest) {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    // Borrar de Auth (cascade borra perfil si hay FK ON DELETE CASCADE)
+    // 1) Quitar referencias que bloquean el borrado (técnicos/gerentes con historial)
+    await admin
+      .from('visitas_programadas')
+      .update({ tecnico_id: null })
+      .eq('tecnico_id', userId);
+
+    await admin
+      .from('problemas')
+      .update({ resuelto_por: null })
+      .eq('resuelto_por', userId);
+
+    // reportado_por es NOT NULL → reasignar al admin que elimina
+    await admin
+      .from('problemas')
+      .update({ reportado_por: user.id })
+      .eq('reportado_por', userId);
+
+    // bitacora si existe
+    try {
+      await admin.from('bitacora').update({ usuario_id: null }).eq('usuario_id', userId);
+    } catch {
+      /* tabla puede no tener esa columna o no existir */
+    }
+
+    // 2) Borrar perfil primero (con service role ignora RLS)
+    const { error: perfErr } = await admin.from('perfiles').delete().eq('id', userId);
+    if (perfErr) {
+      return NextResponse.json(
+        { error: 'No se pudo borrar el perfil: ' + perfErr.message },
+        { status: 400 }
+      );
+    }
+
+    // 3) Borrar de Auth
     const { error: authErr } = await admin.auth.admin.deleteUser(userId);
     if (authErr) {
-      // Si falla auth, intentar borrar solo el perfil
-      const { error: perfErr } = await admin.from('perfiles').delete().eq('id', userId);
-      if (perfErr) {
-        return NextResponse.json(
-          { error: authErr.message || perfErr.message },
-          { status: 400 }
-        );
-      }
-    } else {
-      // Asegurar perfil eliminado
-      await admin.from('perfiles').delete().eq('id', userId);
+      // Perfil ya borrado; Auth puede fallar si el usuario no existe ahí
+      console.warn('Auth delete:', authErr.message);
     }
 
     return NextResponse.json({ ok: true });
