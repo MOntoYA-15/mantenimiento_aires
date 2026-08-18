@@ -79,13 +79,31 @@ export default function UsuariosPage() {
   };
 
   const eliminarUsuario = async (u: Perfil) => {
-    if (!confirm('Eliminar a ' + u.nombre + '?')) return;
+    if (!confirm('¿Eliminar a ' + u.nombre + ' (' + u.email + ')?\nSe borrará por completo, aunque sea administrador.')) return;
     setSaving(u.id);
-    await supabase.from('perfiles').delete().eq('id', u.id);
-    await registrarBitacora('eliminar_usuario', 'perfiles', u.id, u.email);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/admin/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: u.id,
+          adminToken: session?.access_token,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        showMsg(json.error || 'No se pudo eliminar');
+        setSaving(null);
+        return;
+      }
+      await registrarBitacora('eliminar_usuario', 'perfiles', u.id, u.email);
+      showMsg('Usuario eliminado: ' + u.nombre);
+      load();
+    } catch (e: unknown) {
+      showMsg(e instanceof Error ? e.message : 'Error al eliminar');
+    }
     setSaving(null);
-    showMsg('Usuario eliminado');
-    load();
   };
 
   const guardarPassword = async () => {
